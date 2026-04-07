@@ -538,7 +538,6 @@ async function saveEntry() {
       await fetch(webhook, {
         method: 'POST',
         mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(entry)
       });
       saveStatus.innerHTML = '<span class="badge badge-ok">Saved &amp; sent to Google Sheets</span>';
