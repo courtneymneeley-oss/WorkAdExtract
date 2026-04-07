@@ -142,22 +142,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
     <!-- SCAN PANE -->
     <div id="pane-scan" class="pane active">
-      <div class="card" style="padding:0;overflow:hidden">
-        <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFile(this.files[0])">
-        <div class="upload-zone" id="upload-zone">
-          <div id="upload-placeholder">
-            <div class="upload-icon">
-              <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            </div>
-            <div class="upload-label">
-              <strong>Photograph or upload ad</strong>
-            </div>
-            <button class="upload-trigger" onclick="triggerFile()">Choose image</button>
-          </div>
-          <img id="preview-img" alt="preview" onclick="triggerFile()" style="cursor:pointer">
+      <div class="card">
+        <div class="field" style="margin-bottom:10px">
+          <label>Paste ad text here</label>
+          <textarea id="paste-input" rows="7" placeholder="Paste copied text here..."></textarea>
         </div>
+        <button class="extract-btn" id="extract-btn" style="display:block;margin-top:0" onclick="extractFromText()">Organise</button>
       </div>
-      <button class="extract-btn" id="extract-btn" onclick="extractInfo()">Extract</button>
       <div class="status-bar" id="status"></div>
 
       <div class="form-section" id="form-section">
@@ -354,7 +345,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 const STORAGE_KEY = 'jobscan_v2';
 const WEBHOOK_KEY = 'jobscan_webhook';
 let entries = [];
-let currentBase64 = null;
 
 function load() {
   try { entries = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch(e) { entries = []; }
@@ -401,38 +391,18 @@ function updateCount() {
   document.getElementById('hdr-count').textContent = entries.length + '件';
 }
 
-function triggerFile() {
-  const inp = document.getElementById('file-input');
-  inp.value = '';
-  inp.click();
-}
 
-function handleFile(file) {
-  if (!file || !file.type.startsWith('image/')) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    const full = e.target.result;
-    currentBase64 = full.split(',')[1];
-    const img = document.getElementById('preview-img');
-    img.onload = function() {
-      document.getElementById('upload-placeholder').style.display = 'none';
-      img.style.display = 'block';
-      document.getElementById('upload-zone').classList.add('has-image');
-      document.getElementById('extract-btn').style.display = 'block';
-      document.getElementById('status').innerHTML = '';
-      document.getElementById('form-section').style.display = 'none';
-    };
-    img.src = full;
-  };
-  reader.readAsDataURL(file);
-}
 
-async function extractInfo() {
-  if (!currentBase64) return;
+async function extractFromText() {
+  const text = document.getElementById('paste-input').value.trim();
+  if (!text) {
+    document.getElementById('status').innerHTML = '<span class="badge badge-err">Paste some text first</span>';
+    return;
+  }
   const btn = document.getElementById('extract-btn');
   const status = document.getElementById('status');
-  btn.disabled = true; btn.textContent = 'Reading...';
-  status.innerHTML = '<div class="spinner"></div><span style="color:var(--text2);font-size:13px">Analysing image...</span>';
+  btn.disabled = true; btn.textContent = 'Organising...';
+  status.innerHTML = '<div class="spinner"></div><span style="color:var(--text2);font-size:13px">Reading ad...</span>';
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -443,9 +413,7 @@ async function extractInfo() {
         max_tokens: 1500,
         messages: [{
           role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: currentBase64 } },
-            { type: 'text', text: `これは求人広告の写真です。以下のJSONのみを返してください。マークダウンや説明文は不要です。
+          content: `以下は求人広告のテキストです。このJSONのみを返してください。マークダウンや説明文は不要です。
 
 {
   "company": "",
@@ -461,8 +429,10 @@ async function extractInfo() {
 }
 
 contract_typeは次のいずれか: 正, パ, ア, 契, 派, 業, 其, 員, その他（不明な場合は空文字）
-categoriesには広告内の【 】で囲まれたすべての項目を抽出してください。【 】形式がない場合は主要な情報をカテゴリにまとめてください。各カテゴリのnameは【】付きで返してください。` }
-          ]
+categoriesには広告内の【 】で囲まれたすべての項目を抽出してください。【 】形式がない場合は主要な情報をカテゴリにまとめてください。各カテゴリのnameは【】付きで返してください。
+
+求人広告テキスト:
+${text}`
         }]
       })
     });
@@ -487,12 +457,13 @@ categoriesには広告内の【 】で囲まれたすべての項目を抽出し
     renderCatBlocks(p.categories || []);
     document.getElementById('form-section').style.display = 'block';
     updateSaveBtn();
-    status.innerHTML = '<span class="badge badge-ok">Extracted — review below</span>';
+    status.innerHTML = '<span class="badge badge-ok">Done — review below</span>';
   } catch(err) {
-    status.innerHTML = '<span class="badge badge-err">Extraction failed — try again</span>';
+    const msg = err && err.message ? err.message : String(err);
+    status.innerHTML = '<span class="badge badge-err">Failed: ' + msg.slice(0,80) + '</span>';
     console.error(err);
   }
-  btn.disabled = false; btn.textContent = 'Extract';
+  btn.disabled = false; btn.textContent = 'Organise';
 }
 
 function renderCatBlocks(cats) {
@@ -583,17 +554,11 @@ async function saveEntry() {
 }
 
 function resetScan() {
-  currentBase64 = null;
-  const img = document.getElementById('preview-img');
-  img.style.display = 'none'; img.src = '';
-  document.getElementById('upload-placeholder').style.display = 'block';
-  document.getElementById('upload-zone').classList.remove('has-image');
-  document.getElementById('extract-btn').style.display = 'none';
-  document.getElementById('extract-btn').textContent = 'Extract';
+  document.getElementById('paste-input').value = '';
+  document.getElementById('extract-btn').textContent = 'Organise';
   document.getElementById('status').innerHTML = '';
   document.getElementById('form-section').style.display = 'none';
   document.getElementById('save-status').innerHTML = '';
-  document.getElementById('file-input').value = '';
   ['f-company','f-address','f-phone','f-contact','f-contact-phone','f-title','f-date'].forEach(id => document.getElementById(id).value = '');
   document.querySelectorAll('input[name="ct"]').forEach(r => r.checked = false);
   document.getElementById('cat-blocks').innerHTML = '';
